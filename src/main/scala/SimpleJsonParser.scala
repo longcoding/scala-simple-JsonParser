@@ -8,15 +8,64 @@ import scala.reflect.runtime.universe._
 /**
   * Created by longcoding on 2017. 7. 13..
   */
-object SimpleJsonParser extends SimpleJsonParser
+object SimpleJsonParser extends JsonParserUtil {
 
-trait SimpleJsonParser {
+    def toJson[T](source: T)(implicit c: ClassTag[T]) = {
+
+        val m = runtimeMirror(source.getClass.getClassLoader)
+        val classSymbol = m.staticClass(source.getClass.getName)
+        val tpe = classSymbol.selfType
+        val members = tpe.members.collect { case m: MethodSymbol if m.isPublic && m.isGetter && m.isCaseAccessor => m}.toList
+
+        val mi = scala.reflect.runtime.currentMirror.reflect(source)
+
+        extractJson(members, mi)
+
+    }
+
+    def fromJson[T](o: JsValue, runtimeClass: Class[T])  = {
+
+        val m = runtimeMirror(runtimeClass.getClassLoader)
+        val classSymbol = m.staticClass(runtimeClass.getName)
+        val tpe = classSymbol.selfType
+        val members = tpe.members.collect { case m: MethodSymbol if m.isPublic && m.isGetter && m.isCaseAccessor => m}.toList
+        val primaryConstructor = classSymbol.typeSignature.typeSymbol.asClass.primaryConstructor
+
+        val args = assembleArgs(o, members)
+        m.reflectClass(tpe.typeSymbol.asClass).reflectConstructor(primaryConstructor.asMethod).apply(args:_*)
+
+    }
+
+}
+
+trait SimpleJsonParser extends JsonParserUtil {
 
     private val m = runtimeMirror(getClass.getClassLoader)
     private val classSymbol = m.staticClass(getClass.getName)
     private val tpe = classSymbol.selfType
     private val members = tpe.members.collect { case m: MethodSymbol if m.isPublic && m.isGetter && m.isCaseAccessor => m}.toList
 
+    def fromJson(o: JsValue) = {
+
+        val primaryConstructor = classSymbol.typeSignature.typeSymbol.asClass.primaryConstructor
+        val args = assembleArgs(o, members)
+
+        m.reflectClass(tpe.typeSymbol.asClass).reflectConstructor(primaryConstructor.asMethod).apply(args:_*)
+
+    }
+
+    private def defaultJson = {
+
+        val mi = scala.reflect.runtime.currentMirror.reflect(this)
+        extractJson(members, mi)
+
+    }
+
+    def toJson = defaultJson ++ extraJson
+
+}
+
+private trait JsonParserUtil {
 
     private def camel2Underscore(text: String) = text.drop(1).foldLeft(text.headOption.map(_.toLower + "") getOrElse "") {
         case (acc, c) if c.isUpper => acc + "_" + c.toLower
@@ -27,16 +76,9 @@ trait SimpleJsonParser {
         m.group(1).toUpperCase()
     })
 
-    private def extraJson = Json.obj()
+    protected[this] def extraJson = Json.obj()
 
-    private def defaultJson = {
-
-        val mi = scala.reflect.runtime.currentMirror.reflect(this)
-        extractJson(members, mi)
-
-    }
-
-    private def assembleArgs(o: JsValue, members: List[MethodSymbol]) = {
+    protected[this] def assembleArgs(o: JsValue, members: List[MethodSymbol]) = {
         val args = scala.collection.mutable.ArrayBuffer.empty[Any]
         members.reverse.map { member =>
 
@@ -71,44 +113,7 @@ trait SimpleJsonParser {
         args
     }
 
-    def fromJson[T](o: JsValue, runtimeClass: Class[T])  = {
-
-        val m = runtimeMirror(runtimeClass.getClassLoader)
-        val classSymbol = m.staticClass(runtimeClass.getName)
-        val tpe = classSymbol.selfType
-        val members = tpe.members.collect { case m: MethodSymbol if m.isPublic && m.isGetter && m.isCaseAccessor => m}.toList
-        val primaryConstructor = classSymbol.typeSignature.typeSymbol.asClass.primaryConstructor
-
-        val args = assembleArgs(o, members)
-        m.reflectClass(tpe.typeSymbol.asClass).reflectConstructor(primaryConstructor.asMethod).apply(args:_*)
-
-    }
-
-    protected[this] def fromJson(o: JsValue) = {
-
-        val primaryConstructor = classSymbol.typeSignature.typeSymbol.asClass.primaryConstructor
-        val args = assembleArgs(o, members)
-
-        m.reflectClass(tpe.typeSymbol.asClass).reflectConstructor(primaryConstructor.asMethod).apply(args:_*)
-
-    }
-
-    protected[this] def toJson = defaultJson ++ extraJson
-
-    def toJson[T](source: T)(implicit c: ClassTag[T]) = {
-
-        val m = runtimeMirror(source.getClass.getClassLoader)
-        val classSymbol = m.staticClass(source.getClass.getName)
-        val tpe = classSymbol.selfType
-        val members = tpe.members.collect { case m: MethodSymbol if m.isPublic && m.isGetter && m.isCaseAccessor => m}.toList
-
-        val mi = scala.reflect.runtime.currentMirror.reflect(source)
-
-        extractJson(members, mi)
-
-    }
-
-    private def extractJson(members: List[MethodSymbol], mi: InstanceMirror) = {
+    protected[this] def extractJson(members: List[MethodSymbol], mi: InstanceMirror) = {
         var obj = Json.obj()
         members.map(member => (member.name.toString, mi.reflectField(member).get))
             .foreach{ case (key: String, value: Any) => value match {
