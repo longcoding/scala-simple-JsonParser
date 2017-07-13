@@ -1,11 +1,15 @@
 import java.util.Date
+
 import play.api.libs.json._
 
+import scala.reflect.ClassTag
 import scala.reflect.runtime.universe._
 
 /**
   * Created by longcoding on 2017. 7. 13..
   */
+object SimpleJsonParser extends SimpleJsonParser
+
 trait SimpleJsonParser {
 
     private val m = runtimeMirror(getClass.getClassLoader)
@@ -26,27 +30,13 @@ trait SimpleJsonParser {
     private def extraJson = Json.obj()
 
     private def defaultJson = {
+
         val mi = scala.reflect.runtime.currentMirror.reflect(this)
+        extractJson(members, mi)
 
-        var obj = Json.obj()
-        members.map(member => (member.name.toString, mi.reflectField(member).get))
-            .foreach{ case (key: String, value: Any) => value match {
-                case v: Int          => obj ++= Json.obj(key -> v)
-                case v: String       => obj ++= Json.obj(key -> v)
-                case v: Date         => obj ++= Json.obj(key -> v.getTime)
-                case Some(v: Int)    => obj ++= Json.obj(key -> v)
-                case Some(v: String) => obj ++= Json.obj(key -> v)
-                case Some(v: Date)   => obj ++= Json.obj(key -> v.getTime)
-                case _ => obj ++= Json.obj(key -> "")
-            }}
-
-        obj
     }
 
-    def fromJson(o: JsValue) = {
-
-        val primaryConstructor = classSymbol.typeSignature.typeSymbol.asClass.primaryConstructor
-
+    private def assembleArgs(o: JsValue, members: List[MethodSymbol]) = {
         val args = scala.collection.mutable.ArrayBuffer.empty[Any]
         members.reverse.map { member =>
 
@@ -78,12 +68,61 @@ trait SimpleJsonParser {
                 }
             }
         }
+        args
+    }
+
+    def fromJson[T](o: JsValue, runtimeClass: Class[T])  = {
+
+        val m = runtimeMirror(runtimeClass.getClassLoader)
+        val classSymbol = m.staticClass(runtimeClass.getName)
+        val tpe = classSymbol.selfType
+        val members = tpe.members.collect { case m: MethodSymbol if m.isPublic && m.isGetter && m.isCaseAccessor => m}.toList
+        val primaryConstructor = classSymbol.typeSignature.typeSymbol.asClass.primaryConstructor
+
+        val args = assembleArgs(o, members)
+        m.reflectClass(tpe.typeSymbol.asClass).reflectConstructor(primaryConstructor.asMethod).apply(args:_*)
+
+    }
+
+    protected[this] def fromJson(o: JsValue) = {
+
+        val primaryConstructor = classSymbol.typeSignature.typeSymbol.asClass.primaryConstructor
+        val args = assembleArgs(o, members)
 
         m.reflectClass(tpe.typeSymbol.asClass).reflectConstructor(primaryConstructor.asMethod).apply(args:_*)
 
     }
 
-    def toJson = defaultJson ++ extraJson
+    protected[this] def toJson = defaultJson ++ extraJson
+
+    def toJson[T](source: T)(implicit c: ClassTag[T]) = {
+
+        val m = runtimeMirror(source.getClass.getClassLoader)
+        val classSymbol = m.staticClass(source.getClass.getName)
+        val tpe = classSymbol.selfType
+        val members = tpe.members.collect { case m: MethodSymbol if m.isPublic && m.isGetter && m.isCaseAccessor => m}.toList
+
+        val mi = scala.reflect.runtime.currentMirror.reflect(source)
+
+        extractJson(members, mi)
+
+    }
+
+    private def extractJson(members: List[MethodSymbol], mi: InstanceMirror) = {
+        var obj = Json.obj()
+        members.map(member => (member.name.toString, mi.reflectField(member).get))
+            .foreach{ case (key: String, value: Any) => value match {
+                case v: Int          => obj ++= Json.obj(key -> v)
+                case v: String       => obj ++= Json.obj(key -> v)
+                case v: Date         => obj ++= Json.obj(key -> v.getTime)
+                case Some(v: Int)    => obj ++= Json.obj(key -> v)
+                case Some(v: String) => obj ++= Json.obj(key -> v)
+                case Some(v: Date)   => obj ++= Json.obj(key -> v.getTime)
+                case _ => obj ++= Json.obj(key -> "")
+            }}
+
+        obj
+    }
 
 }
 
