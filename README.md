@@ -9,10 +9,10 @@ Simple Scala Json Parser using scala reflection. </br>
 * T to json.
 * You can add default Json ++ your extra json. ( override extraJson function )
 </br>
-* It is just for studying relection. But this library do not have any problems.
+* It is just for studying reflection. But this library does not have any problems.
 
 ## How To Use
-    case class yourCustomClass(a: Int, b: String)
+    case class YourCustomClass(param1: Int, param2: String)
 
     //extends Mode
     val yourCustomClass = yourCustomClass(0, "5")
