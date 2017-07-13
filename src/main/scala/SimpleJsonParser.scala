@@ -65,7 +65,7 @@ trait SimpleJsonParser extends JsonParserUtil {
 
 }
 
-private trait JsonParserUtil {
+protected trait JsonParserUtil {
 
     private def camel2Underscore(text: String) = text.drop(1).foldLeft(text.headOption.map(_.toLower + "") getOrElse "") {
         case (acc, c) if c.isUpper => acc + "_" + c.toLower
